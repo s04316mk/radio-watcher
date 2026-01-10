@@ -1,0 +1,28 @@
+name: Radio Crawler
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # 15分ごとに実行
+  workflow_dispatch: # 手動でも実行できるようにするボタン
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        
+    - name: Run crawler
+      env:
+        GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      run: python radiko_crawler.py
