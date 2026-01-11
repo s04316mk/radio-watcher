@@ -29,7 +29,7 @@ def connect_sheet():
 def load_data():
     try:
         ws = connect_sheet()
-        # 全データ取得（行数が多い場合は制限をかけることも検討）
+        # 全データ取得
         data = ws.get_all_records()
         df = pd.DataFrame(data)
         return df
@@ -49,10 +49,13 @@ if df.empty:
     st.warning("まだデータがありません。")
     st.stop()
 
-# 表示用に列を整理（ts_utcを日時に変換して日本時間に）
+# 表示用に列を整理
 if "ts_utc" in df.columns:
+    # 1. まず日付型に変換
     df["ts_utc"] = pd.to_datetime(df["ts_utc"])
-    df["放送日時(JST)"] = df["ts_utc"].dt.tz_convert("Asia/Tokyo").dt.strftime("%Y-%m-%d %H:%M:%S")
+    
+    # 2. 【ここを修正！】元がUTCであることを明示してから、JSTに変換
+    df["放送日時(JST)"] = df["ts_utc"].dt.tz_localize("UTC").dt.tz_convert("Asia/Tokyo").dt.strftime("%Y-%m-%d %H:%M:%S")
 
 # 検索フィルター
 with st.sidebar:
