@@ -1,76 +1,89 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
-import time
+import gspread
+from google.oauth2.service_account import Credentials
+import json
+import os
 
-# ページの設定（タイトルやアイコン）
-st.set_page_config(
-    page_title="Radio Watcher",
-    page_icon="📻",
-    layout="wide"
-)
+# ページ設定
+st.set_page_config(page_title="Radio Watcher", page_icon="📻", layout="wide")
 
-# データベースファイル名
-DB_NAME = "radiko_history.db"
+# 定数
+SHEET_ID = st.secrets["GOOGLE_SHEET_ID"]
+WORKSHEET_NAME = "plays"
 
-def load_data(query, params=None):
-    """データベースからデータを読み込んで表(DataFrame)にする"""
-    conn = sqlite3.connect(DB_NAME)
-    if params:
-        df = pd.read_sql(query, conn, params=params)
-    else:
-        df = pd.read_sql(query, conn)
-    conn.close()
-    return df
+# スプレッドシート接続（キャッシュして高速化）
+@st.cache_resource
+def connect_sheet():
+    # SecretsからJSON文字列を取得して辞書に変換
+    json_str = st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"]
+    info = json.loads(json_str)
+    
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
+    creds = Credentials.from_service_account_info(info, scopes=scopes)
+    gc = gspread.authorize(creds)
+    return gc.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
 
-# === 画面を作る ===
-st.title("📻 推し活ラジオ・ウォッチ")
-st.caption("現在監視中のラジオ局から、推しの曲を逆引き検索します")
+# データ読み込み（キャッシュしてAPI制限対策）
+@st.cache_data(ttl=60) # 60秒間はデータを再取得しない
+def load_data():
+    try:
+        ws = connect_sheet()
+        # 全データ取得（行数が多い場合は制限をかけることも検討）
+        data = ws.get_all_records()
+        df = pd.DataFrame(data)
+        return df
+    except Exception as e:
+        st.error(f"データ読み込みエラー: {e}")
+        return pd.DataFrame()
 
-# サイドバー（左側のメニュー）
+# === メイン画面 ===
+st.title("📻 推し活ラジオ・ウォッチ (Cloud版)")
+st.caption("全国のラジオ局を24時間監視中。データは自動更新されます。")
+
+# データ読み込み
+with st.spinner('スプレッドシートから最新データを取得中...'):
+    df = load_data()
+
+if df.empty:
+    st.warning("まだデータがありません。")
+    st.stop()
+
+# 表示用に列を整理（ts_utcを日時に変換して日本時間に）
+if "ts_utc" in df.columns:
+    df["ts_utc"] = pd.to_datetime(df["ts_utc"])
+    df["放送日時(JST)"] = df["ts_utc"].dt.tz_convert("Asia/Tokyo").dt.strftime("%Y-%m-%d %H:%M:%S")
+
+# 検索フィルター
 with st.sidebar:
-    st.header("🔍 検索設定")
-    search_text = st.text_input("アーティスト名 / 曲名", placeholder="例: 星野源")
-    st.markdown("---")
+    st.header("🔍 検索")
+    artist_input = st.text_input("アーティスト名", placeholder="例: 星野源")
+    song_input = st.text_input("曲名", placeholder="例: 恋")
+    
     if st.button("🔄 最新データに更新"):
+        load_data.clear() # キャッシュをクリア
         st.rerun()
 
-# メイン画面の表示切り替え
-if search_text:
-    # === 検索モード ===
-    st.subheader(f"🔎 「{search_text}」の検索結果")
-    
-    # SQLを作る（アーティストか曲名に含まれていればヒット）
-    sql = """
-        SELECT start_time as '放送日時', station_id as '放送局', artist as 'アーティスト', title as '曲名'
-        FROM tracks 
-        WHERE artist LIKE ? OR title LIKE ?
-        ORDER BY start_time DESC
-    """
-    search_param = f"%{search_text}%"
-    df = load_data(sql, (search_param, search_param))
-    
-    if len(df) > 0:
-        st.success(f"{len(df)} 件見つかりました！")
-        # 綺麗な表で表示
-        st.dataframe(df, use_container_width=True)
-    else:
-        st.warning("😢 まだ見つかりません。")
+# フィルタリング処理
+results = df.copy()
+if artist_input:
+    results = results[results["artist"].astype(str).str.contains(artist_input, case=False, na=False)]
+if song_input:
+    results = results[results["title"].astype(str).str.contains(song_input, case=False, na=False)]
 
+# 結果表示
+if artist_input or song_input:
+    st.subheader(f"🔎 検索結果: {len(results)} 件")
 else:
-    # === 待機モード（最新の履歴を表示） ===
-    st.subheader("📡 最新のオンエア曲 (直近30件)")
-    
-    sql = """
-        SELECT start_time as '放送日時', station_id as '放送局', artist as 'アーティスト', title as '曲名'
-        FROM tracks 
-        ORDER BY start_time DESC LIMIT 30
-    """
-    df = load_data(sql)
-    
-    # 自動更新ボタン
-    if st.checkbox("リアルタイム更新モード（5秒毎）"):
-        time.sleep(5)
-        st.rerun()
+    st.subheader(f"📡 最新のオンエア（全{len(results)}件）")
 
-    st.dataframe(df, use_container_width=True)
+# 表示するカラムを選ぶ
+display_cols = ["放送日時(JST)", "station_id", "artist", "title", "start_time"]
+# データフレームにないカラムは除外
+display_cols = [c for c in display_cols if c in results.columns]
+
+# 新しい順に並べ替え
+if "放送日時(JST)" in results.columns:
+    results = results.sort_values("放送日時(JST)", ascending=False)
+
+st.dataframe(results[display_cols], use_container_width=True, hide_index=True)
