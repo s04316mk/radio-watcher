@@ -1,10 +1,9 @@
 name: Radio Crawler
 
 on:
-  schedule:
-    - cron: '*/5 * * * *' # 5分ごとに実行
-  workflow_dispatch: # 手動でも実行できるようにするボタン
-
+  repository_dispatch:
+    types: [trigger-crawl]  # GASからの合図待ち
+  workflow_dispatch:        # 手動ボタンも残す
 jobs:
   crawl:
     runs-on: ubuntu-latest
