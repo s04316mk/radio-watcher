@@ -18,12 +18,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# カスタムCSS（KPIカードをおしゃれに）
+# カスタムCSS
 st.markdown("""
 <style>
     div[data-testid="stMetricValue"] {
         font-size: 2rem;
-        color: #00ADB5; /* ネオンカラー */
+        color: #00ADB5;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -33,7 +33,6 @@ def load_data():
     key_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT_JSON"])
     credentials = service_account.Credentials.from_service_account_info(key_info)
     
-    # 最新3000件を取得
     query = f"""
     SELECT DISTINCT
         timestamp,
@@ -53,11 +52,11 @@ def load_data():
 try:
     df = load_data()
     
-    # データを東京時間に変換
+    # 【修正1】時間を「そのまま」表示する（余計な時差変換をしない）
     if not df.empty:
-        df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_convert('Asia/Tokyo')
+        df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_localize(None)
 
-    # サイドバー（更新ボタン）
+    # サイドバー
     with st.sidebar:
         st.header("設定")
         if st.button("データを最新にする"):
@@ -66,13 +65,13 @@ try:
     
     # タイトル
     st.title("📻 Radio Watcher Pro")
-    st.caption(f"Last Update: {datetime.datetime.now(pytz.timezone('Asia/Tokyo')).strftime('%H:%M:%S')}")
+    now_time = datetime.datetime.now(pytz.timezone('Asia/Tokyo')).strftime('%H:%M:%S')
+    st.caption(f"Last Update: {now_time}")
 
     if not df.empty:
-        # --- ダッシュボードエリア ---
+        # --- ダッシュボード ---
         col1, col2, col3, col4 = st.columns(4)
         
-        # 今日の日付のデータをカウント
         today = datetime.datetime.now(pytz.timezone('Asia/Tokyo')).date()
         df['date'] = df['timestamp'].dt.date
         today_count = len(df[df['date'] == today])
@@ -82,7 +81,6 @@ try:
         with col2:
             st.metric("監視ステーション", f"{df['station_id'].nunique()} 局")
         with col3:
-            # 一番多く流れているアーティスト
             top_artist = df['artist'].mode()[0] if not df.empty else "-"
             st.metric("Trend Artist", top_artist)
         with col4:
@@ -90,14 +88,13 @@ try:
 
         st.divider()
 
-        # --- 検索＆フィルタエリア ---
+        # --- 検索エリア ---
         col_search, col_filter = st.columns([2, 1])
         with col_search:
             search_word = st.text_input("🔍 キーワード検索", placeholder="アーティスト名、曲名など...")
         with col_filter:
             station_filter = st.multiselect("放送局で絞り込み", df['station_id'].unique())
 
-        # フィルタリング
         df_display = df.copy()
         if search_word:
             mask = (
@@ -113,7 +110,8 @@ try:
         st.dataframe(
             df_display[['timestamp', 'station_id', 'program_name', 'artist', 'title']],
             column_config={
-                "timestamp": st.column_config.DatetimeColumn("On Air Time", format="MM/DD HH:mm"),
+                # 【修正2】秒まで表示するフォーマットに変更
+                "timestamp": st.column_config.DatetimeColumn("On Air Time", format="MM/DD HH:mm:ss"),
                 "station_id": "Station",
                 "artist": st.column_config.TextColumn("Artist", width="medium"),
                 "title": st.column_config.TextColumn("Title", width="medium"),
