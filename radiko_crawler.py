@@ -16,7 +16,6 @@ import pytz
 PROJECT_ID = "radio-watcher-v2"
 TABLE_ID = "radio_data.plays"
 
-# 監視する放送局リスト
 STATIONS = [
     "AIR-G", "NORTHWAVE",          # 北海道
     "TBS", "QRR", "INT", "FMJ", "FMT", "BAYFM78", "NACK5", "YFM", # 関東
@@ -25,6 +24,23 @@ STATIONS = [
     "RKB", "KBC", "LOVEFM", "CROSSFM", # 九州
     "FM_OKINAWA"                   # 沖縄
 ]
+
+def parse_radiko_date(date_str):
+    """日付フォーマットの揺らぎに対応する関数"""
+    if not date_str:
+        return None
+    
+    # パターン1: 2026-01-21 18:30:00 (ハイフンあり)
+    try:
+        return datetime.datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        pass
+        
+    # パターン2: 20260121183000 (ハイフンなし)
+    try:
+        return datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+    except ValueError:
+        return None
 
 def get_station_data(station_id):
     url = f"https://radiko.jp/v3/feed/pc/noa/{station_id}.xml"
@@ -40,31 +56,29 @@ def get_station_data(station_id):
         items = soup.find_all("item")
         
         for item in items:
-            # 【修正点】 データはタグの中身ではなく「属性(attribute)」に入っていました！
-            # .find().text ではなく .get() を使います
             title = item.get("title") or ""
             artist = item.get("artist") or ""
             stamp_str = item.get("stamp")
             
-            # アーティスト名がない場合はUnknownにする
             if not artist:
                 artist = "Unknown / Talk"
 
-            # タイトルと時間さえあれば保存
             if title and stamp_str:
-                try:
-                    dt = datetime.datetime.strptime(stamp_str, "%Y%m%d%H%M%S")
-                    
+                # ★ここで強化した日付読み取り機能を使います
+                dt = parse_radiko_date(stamp_str)
+                
+                if dt:
                     data_list.append({
                         "timestamp": dt,
                         "station_id": station_id,
-                        "program_name": "Now On Air", 
+                        "program_name": "Now On Air",
                         "dj_name": "",
                         "artist": artist,
                         "title": title
                     })
-                except ValueError:
-                    continue
+                else:
+                    # 日付が読めなかった場合だけログに出す（デバッグ用）
+                    print(f"⚠️ Unparsable date: {stamp_str}")
 
         return data_list
 
@@ -74,7 +88,7 @@ def get_station_data(station_id):
 
 def main():
     all_data = []
-    print("Start crawling (Attribute Mode)...")
+    print("Start crawling (Fixed Date Format)...")
     
     for station in STATIONS:
         station_data = get_station_data(station)
@@ -100,7 +114,7 @@ def main():
         )
         print("Done! Data saved.")
     else:
-        print("No data found. (But connection was OK!)")
+        print("No data found (or all dates failed parsing).")
 
 if __name__ == "__main__":
     main()
