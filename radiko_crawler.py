@@ -2,9 +2,6 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import pandas_gbq
-from google.oauth2 import service_account
-import os
-import json
 import time
 import random
 import datetime
@@ -13,16 +10,16 @@ import pytz
 # ==========================================
 # 設定エリア
 # ==========================================
-PROJECT_ID = "radio-watcher-v2"
+PROJECT_ID = "radio-watcher-v2"  # ※もしGCP上のIDが違う場合は修正してください
 TABLE_ID = "radio_data.plays"
 
 STATIONS = [
-    "AIR-G", "NORTHWAVE",          # 北海道
+    "AIR-G", "NORTHWAVE",           # 北海道
     "TBS", "QRR", "INT", "FMJ", "FMT", "BAYFM78", "NACK5", "YFM", # 関東
-    "ZIP-FM", "FMAICHI",           # 中部
-    "ABC", "CCL", "802", "FMO",    # 関西
+    "ZIP-FM", "FMAICHI",            # 中部
+    "ABC", "CCL", "802", "FMO",     # 関西
     "RKB", "KBC", "LOVEFM", "CROSSFM", # 九州
-    "FM_OKINAWA"                   # 沖縄
+    "FM_OKINAWA"                    # 沖縄
 ]
 
 def parse_radiko_date(date_str):
@@ -64,7 +61,6 @@ def get_station_data(station_id):
                 artist = "Unknown / Talk"
 
             if title and stamp_str:
-                # ★ここで強化した日付読み取り機能を使います
                 dt = parse_radiko_date(stamp_str)
                 
                 if dt:
@@ -77,7 +73,6 @@ def get_station_data(station_id):
                         "title": title
                     })
                 else:
-                    # 日付が読めなかった場合だけログに出す（デバッグ用）
                     print(f"⚠️ Unparsable date: {stamp_str}")
 
         return data_list
@@ -88,7 +83,7 @@ def get_station_data(station_id):
 
 def main():
     all_data = []
-    print("Start crawling (Fixed Date Format)...")
+    print("Start crawling (Cloud Run Version)...")
     
     for station in STATIONS:
         station_data = get_station_data(station)
@@ -100,17 +95,16 @@ def main():
 
     if all_data:
         df = pd.DataFrame(all_data)
-        key_info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
-        credentials = service_account.Credentials.from_service_account_info(key_info)
         
+        # Cloud Run上では認証情報を自動取得するため、credentialsの指定は不要です
         print(f"Saving {len(df)} records to BigQuery...")
         
         pandas_gbq.to_gbq(
             df,
             TABLE_ID,
             project_id=PROJECT_ID,
-            if_exists="append",
-            credentials=credentials
+            if_exists="append"
+            # credentials=credentials ← 削除しました
         )
         print("Done! Data saved.")
     else:
