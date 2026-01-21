@@ -1,5 +1,9 @@
 streamlit
 pandas
-requests
-gspread
+pandas-gbq
 google-auth
+google-auth-oauthlib
+google-auth-httplib2
+requests
+beautifulsoup4
+lxml
