@@ -5,4 +5,4 @@ images:
   - 'gcr.io/$PROJECT_ID/radio-watcher'
 options:
   logging: GCS_ONLY
-  logsBucket: 'gs://radio-watcher-build-logs'
+  logStreamingOption: STREAM_ON
